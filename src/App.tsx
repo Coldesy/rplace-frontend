@@ -1,13 +1,11 @@
-
-import {Board} from './Board'
-
+import { Board } from './Board'
+import { Atmosphere } from './components/Atmosphere'
 
 function App() {
-
-
   return (
     <>
-      <Board></Board>
+      <Atmosphere />
+      <Board />
     </>
   )
 }
