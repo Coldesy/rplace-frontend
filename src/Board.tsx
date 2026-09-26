@@ -10,7 +10,6 @@ const PALETTE = [
 
 const CANVAS_WIDTH = 1000;
 const CANVAS_HEIGHT = 600;
-const COOLDOWN_SECONDS = 6;
 
 function unpackAndDraw(
     buffer: ArrayBuffer,
@@ -74,7 +73,12 @@ export function Board() {
     const isHttpLoadedRef = useRef(false);
     const messageQueueRef = useRef<ArrayBuffer[]>([]);
 
+    const [selectedUser] = useState(() =>
+        Math.random() > 0.5 ? 'user-default' : 'user-premium'
+    );
+    const [selectedColorId, setSelectedColorId] = useState(2);
     const [cooldown, setCooldown] = useState(0);
+    const [remainingPixels, setRemainingPixels] = useState<number | null>(null);
     const [connected, setConnected] = useState(false);
 
     useEffect(() => {
@@ -102,7 +106,7 @@ export function Board() {
         if (!ctx) return;
 
         const ws = new WebSocket(
-            'ws://localhost:3001/ws?mock_user_id=dev_frontend'
+            `ws://localhost:3001/ws?mock_user_id=${selectedUser}`
         );
 
         ws.binaryType = 'arraybuffer';
@@ -150,14 +154,22 @@ export function Board() {
                         type?: string;
                         error?: string;
                         ttl?: number;
+                        remaining?: number;
                     };
+
+                    if (message.type === 'PLACED') {
+                        if (message.remaining !== undefined) {
+                            setRemainingPixels(Math.max(0, message.remaining));
+                        }
+                        return;
+                    }
 
                     if (message.type !== 'ERROR') return;
 
                     console.error('Pixel placement failed:', message.error);
 
                     if (message.error === 'RATE_LIMITED') {
-                        setCooldown(Math.max(0, message.ttl ?? COOLDOWN_SECONDS));
+                        setCooldown(Math.max(0, message.ttl ?? 0));
                     }
                 } catch (error) {
                     console.error('Failed to parse WebSocket message:', error);
@@ -214,7 +226,7 @@ export function Board() {
             ws.close();
             wsRef.current = null;
         };
-    }, []);
+    }, [selectedUser]);
 
     const handleCanvasClick = (event: MouseEvent<HTMLCanvasElement>) => {
         const socket = wsRef.current;
@@ -245,21 +257,17 @@ export function Board() {
             ((event.clientY - rect.top) / rect.height) * CANVAS_HEIGHT
         );
 
-        const colorId = 2;
         const payload = new ArrayBuffer(9);
         const view = new DataView(payload);
 
         view.setUint16(0, x, true);
         view.setUint16(2, y, true);
-        view.setUint8(4, colorId);
+        view.setUint8(4, selectedColorId);
         view.setUint32(5, crypto.getRandomValues(new Uint32Array(1))[0], true);
 
-        console.log('Sending pixel', { x, y, colorId });
+        console.log('Sending pixel', { x, y, colorId: selectedColorId });
 
         socket.send(payload);
-
-        // Prevent duplicate clicks while waiting for the server response.
-        setCooldown(COOLDOWN_SECONDS);
     };
 
     return (
@@ -268,6 +276,42 @@ export function Board() {
                 {connected ? 'Connected' : 'Disconnected'}
                 {cooldown > 0 && ` - ${cooldown}s`}
             </p>
+            <p>Selected user: {selectedUser}</p>
+            {remainingPixels !== null && (
+                <p>Remaining pixels: {remainingPixels}</p>
+            )}
+            <div
+                aria-label="Color selection"
+                style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    justifyContent: 'center',
+                    margin: '12px auto',
+                    maxWidth: '360px'
+                }}
+            >
+                {PALETTE.map((color, colorId) => (
+                    <button
+                        key={colorId}
+                        type="button"
+                        aria-label={`Select color ${colorId + 1}`}
+                        aria-pressed={selectedColorId === colorId}
+                        onClick={() => setSelectedColorId(colorId)}
+                        style={{
+                            width: '28px',
+                            height: '28px',
+                            padding: 0,
+                            border: selectedColorId === colorId
+                                ? '3px solid currentColor'
+                                : '1px solid #888',
+                            borderRadius: '4px',
+                            backgroundColor: `rgb(${color[0]}, ${color[1]}, ${color[2]})`,
+                            cursor: 'pointer'
+                        }}
+                    />
+                ))}
+            </div>
 
             <canvas
                 ref={canvasRef}
